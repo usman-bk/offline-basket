@@ -1,0 +1,67 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: basket_test
+        ports:
+          - 5432:5432
+        # Without this the job races the container and the first connection
+        # fails on a cold runner.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          check-latest: false
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would change these files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # Run the suite twice on purpose. Once without a database, because the
+      # service has to be testable without one and a skip that becomes
+      # permanent is how that stops being true. Once with, for the lock and
+      # the jsonb round trip.
+      - name: Test without a database
+        run: go test -race ./...
+
+      - name: Test against Postgres
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/basket_test?sslmode=disable
+        run: go test -race ./...
+
+      - name: Longer randomised merge search
+        env:
+          BASKET_FUZZ_TRIALS: '40000'
+          BASKET_FUZZ_SEED: '20261022'
+        run: go test ./internal/basket/ -run TestRandomBatches

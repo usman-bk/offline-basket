@@ -1,0 +1,13 @@
+# Build output
+/basketd
+/dist/
+*.exe
+
+# Go
+*.test
+*.out
+/vendor/
+
+# Local
+.env
+.DS_Store
